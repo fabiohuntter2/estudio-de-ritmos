@@ -1,0 +1,69 @@
+ESTÚDIO DE RITMOS — PLUGIN VST3 (versão 0.1, para testes)
+=========================================================
+
+O plugin toca os ritmos (.ritmo) dentro do Cubase (e de outras DAWs com VST3):
+sincroniza com o andamento e o play do Cubase, reconhece o acorde que você toca e
+manda as 8 pistas em MIDI (canais 9 a 16) para o Kontakt.
+
+
+1) INSTALAR
+-----------
+Windows: copie a pasta  "Estudio de Ritmos.vst3"  para
+           C:\Program Files\Common Files\VST3\
+Mac:     copie para  /Library/Audio/Plug-Ins/VST3/
+No Cubase: Studio → VST Plug-in Manager → "Rescan" (ou reabra o Cubase).
+Ele aparece como instrumento em  "Estudio de Ritmos".
+
+
+2) LIGAR NO CUBASE (5 minutos)
+------------------------------
+  a. Projeto → Adicionar faixa → Instrumento → "Estudio de Ritmos".
+     É nesta faixa que você toca/grava os ACORDES (mão esquerda, abaixo do split).
+  b. Adicione o Kontakt numa faixa de instrumento.
+     Monte um multi no Kontakt: bateria no canal 10, percussão no 9, baixo no 11,
+     violão no 12, piano no 13, cordas no 14, sanfona no 15, metais no 16.
+     (Ou uma faixa de Kontakt por pista, cada uma recebendo o seu canal.)
+  c. Na faixa do Kontakt, no Inspector:
+       Entrada MIDI  =  "Estudio de Ritmos" (MIDI Out)
+       Canal         =  "Any"  (para o multi receber todos os canais)
+     e ligue o botão de Monitor da faixa do Kontakt.
+  d. Dê play no Cubase: o ritmo começa alinhado ao compasso.
+     Toque os acordes na faixa do Estúdio de Ritmos (ou grave-os ali).
+
+Sem o Cubase tocando, o botão INICIAR do plugin toca sozinho (no andamento do projeto).
+"Sync Start": o ritmo começa quando você toca o primeiro acorde.
+
+
+3) TROCAR DE SEÇÃO
+------------------
+  - Botões na tela do plugin (Intro, Variação A–D, Fill, Break, Final);
+  - Automação do parâmetro "Secao" na linha do tempo do Cubase;
+  - Teclas de controle no CANAL MIDI 16 (dá para gravar numa faixa MIDI):
+        C1 (36) Intro A   C#1 (37) Intro B   D1 (38) Intro C
+        E1 (40) Var A     F1 (41) Var B      F#1 (42) Var C    G1 (43) Var D
+        A1 (45) Fill      A#1 (46) Break
+        C2 (48) Final A   C#2 (49) Final B   D2 (50) Final C
+        E2 (52) Iniciar/Parar     F2 (53) Sync Start
+    (nomes de nota como no Cubase, onde o Dó central é C3 = 60)
+
+
+4) MODOS DE ACORDE
+------------------
+  Fingered          — acorde completo; inversões tocam como fundamental (padrão dos teclados).
+  Fingered On Bass  — a nota mais grave vai para o baixo (Dó com Mi embaixo = C/E).
+  Single Finger     — 1 tecla = maior; + tecla preta à esquerda = menor; + branca = sétima.
+  Split: as notas ABAIXO do split fazem o acorde; as de cima passam direto (canal original).
+
+
+5) RITMOS
+---------
+  O plugin já vem com o "Arrocha Demo". "Abrir ritmo..." carrega qualquer .ritmo criado
+  no programa Estúdio de Ritmos (importar loop, programar seções). O ritmo fica salvo
+  DENTRO do projeto do Cubase — não precisa levar o arquivo junto.
+
+
+6) O QUE MANDAR DE VOLTA
+------------------------
+  - Se o Cubase não listar o plugin, ou travar ao abrir (print).
+  - Se o ritmo sai do tempo, atrasa ao trocar de acorde, ou deixa nota presa.
+  - Se a troca de seção pela automação / canal 16 funcionou.

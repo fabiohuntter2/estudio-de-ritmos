@@ -1,0 +1,4 @@
+# Cada uma é instalada separadamente; se falhar, o programa funciona sem ela.
+sounddevice>=0.4.6      # som interno pela placa de som
+python-rtmidi>=1.5      # teclado MIDI e saída MIDI (loopMIDI / Kontakt standalone)
+pedalboard>=0.9.10      # VST / Kontakt nas pistas

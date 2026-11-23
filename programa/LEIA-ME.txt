@@ -1,0 +1,102 @@
+ESTÚDIO DE RITMOS — versão 0.1 (protótipo para testes)
+=====================================================
+
+Programa para criar ritmos de teclado arranjador: transforma um loop de bateria em MIDI,
+monta um ritmo de 8 pistas com seções (Intro, Variações A–D, Viradas, Break, Final) e toca
+como um teclado — a mão esquerda faz o acorde e o ritmo acompanha. Cada pista pode tocar
+com o som interno ou com um VST (Kontakt e outros).
+
+
+1) INSTALAR (uma vez só)
+------------------------
+Windows:
+  a. Instale o Python 3.12 (64-bit):
+     https://www.python.org/downloads/release/python-31210/  → "Windows installer (64-bit)"
+     >>> Na primeira tela do instalador, MARQUE "Add python.exe to PATH". <<<
+     Se você já tem outro Python (ex.: 3.15), NÃO precisa desinstalar: os dois convivem.
+     Versões muito novas (3.14, 3.15) ainda não têm todas as bibliotecas de áudio.
+  b. Dê dois cliques em  "1 - Instalar (Windows).bat"
+     Ele acha o Python 3.12 sozinho, baixa as bibliotecas e roda os testes.
+     No final deve aparecer "OK" e "Tudo instalado".
+Mac:
+  a. Instale o Python 3.12 do python.org.
+  b. Clique com o botão direito em "1 - Instalar (Mac).command" → Abrir.
+
+
+2) ABRIR
+--------
+  Windows: "2 - Abrir Estudio de Ritmos (Windows).bat"
+  Mac:     "2 - Abrir Estudio de Ritmos (Mac).command"
+  Uma janela preta fica aberta atrás do programa: ela mostra mensagens de erro.
+  Se algo der errado, TIRE UM PRINT DESSA JANELA e mande — é o que preciso para ajustar.
+
+
+3) ROTEIRO DE TESTE SUGERIDO (15 minutos)
+-----------------------------------------
+  [ ] Aba 4 · Tocar: ligue "Sequência automática", aperte INICIAR (ou a barra de espaço).
+      Troque as variações com Z, X, C, V (ou os botões). Teste Fill (F), Break (B), Final (E).
+  [ ] Toque acordes com as teclas 1 a 7 (graus do tom) ou digitando "Am7" + Enter.
+  [ ] Abra "exemplos/Loop 136 (do seu loop).ritmo" (botão Abrir…) e toque de novo.
+  [ ] Aba 1 · Importar loop: escolha outro loop seu, Analisar, ouça "▶ Detectado",
+      envie para a Var B e toque.
+  [ ] Aba 2 · Programar: escolha uma seção e uma pista e clique na grade para pôr/tirar notas.
+      "Ouvir seção no acorde" toca a seção com som interno.
+  [ ] Aba 3 · Instrumentos: em uma pista, "VST…" → escolha o Kontakt (arquivo .vst3) →
+      "Janela" → carregue uma biblioteca no Kontakt → feche a janela do Kontakt.
+  [ ] Exportar música…: escreva um roteiro e salve MIDI e WAV (o WAV usa o Kontakt das pistas).
+  [ ] Teclado MIDI (barra de cima): escolha seu teclado; a mão esquerda (abaixo do split) faz o acorde.
+      Ligue "Sync Start" para começar ao tocar o primeiro acorde.
+
+
+4) KONTAKT — TRÊS FORMAS DE USAR
+--------------------------------
+  A) Renderizar (mais estável): Aba 3 → "VST…" na pista → "Janela" para escolher a biblioteca.
+     Depois "Exportar música… → Renderizar WAV". O estado do Kontakt fica salvo no .ritmo.
+
+  B) Ao vivo dentro do programa (EXPERIMENTAL): Aba 3 → marque "Ao vivo" na pista que tem VST.
+     O Kontakt toca em tempo real junto com o som interno. Se ele travar ou falhar,
+     o programa volta sozinho para o som interno e avisa na barra de baixo.
+
+  C) Ao vivo pelo Kontakt de fora (ou pela sua DAW):
+     Windows: instale o loopMIDI (gratuito, tobias-erichsen.de), crie uma porta.
+     No programa, "Saída do som" → "MIDI: loopMIDI Port".
+     No Kontakt standalone (Options → MIDI), ative a entrada loopMIDI.
+     Cada pista sai no seu canal: Rhythm 1 = 9, Rhythm 2 = 10, Baixo = 11, Violão = 12,
+     Piano = 13, Cordas = 14, Phrase 1 = 15, Phrase 2 = 16 (dá para mudar na Aba 3).
+     Mac: use o "Driver IAC" (Configuração de Áudio e MIDI) no lugar do loopMIDI.
+
+  Se a bateria do Kontakt usa outras notas para as peças: Aba 3 → "Mapa de notas da bateria…".
+
+
+5) COMO PROGRAMAR AS PISTAS DE HARMONIA
+---------------------------------------
+  Grave/programe baixo, violão, piano, pad e frases SEMPRE EM DÓ (acorde C ou CMaj7:
+  Dó, Mi, Sol, Si). O motor de acordes transpõe para o acorde que você toca:
+    - Fundamental (baixo): mantém o desenho da linha e segue a fundamental / baixo invertido (C/E).
+    - Acorde (vozes): troca cada voz pela voz correspondente do novo acorde, mexendo o mínimo.
+    - Melodia (frases): transpõe a frase inteira e ajusta 3ª e 7ª.
+    - Não transpõe: bateria e percussão.
+
+
+6) ATALHOS (na aba Tocar)
+-------------------------
+  Espaço = iniciar/parar   Z X C V = Variação A B C D   F = Virada   B = Break
+  Q = Intro A   E = Final A   1–7 = acordes do tom escolhido
+
+
+7) LIMITAÇÕES CONHECIDAS DESTA VERSÃO
+-------------------------------------
+  - A detecção de bateria é por regras (acerto ~90% nos testes). Chimbal tocado junto com
+    a caixa às vezes some; percussão regional (zabumba, triângulo) ainda não é separada.
+  - Kontakt ao vivo dentro do programa é experimental (não pôde ser testado com Kontakt real
+    durante o desenvolvimento — só com plugin simulado). Seu retorno aqui é o mais importante.
+  - Ainda não exporta .sty (Yamaha) nem formato Korg — próxima fase.
+  - O som interno é simples, serve só para ouvir a ideia.
+
+
+8) O QUE MANDAR DE VOLTA
+------------------------
+  - Prints de erros (janela preta), e o que você estava fazendo.
+  - Loops em que a detecção errou (o arquivo de áudio + o que deveria ter saído).
+  - Como o Kontakt se comportou em cada forma (A, B, C).
+  - O que está estranho no som do motor de acordes (qual acorde, qual pista).
