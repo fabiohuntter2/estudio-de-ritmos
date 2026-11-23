@@ -113,13 +113,14 @@ EstudioRitmosEditor::~EstudioRitmosEditor()
 
 void EstudioRitmosEditor::abrirRitmo()
 {
-    seletor = std::make_unique<juce::FileChooser> ("Abrir ritmo", juce::File(), "*.ritmo");
+    seletor = std::make_unique<juce::FileChooser> (u ("Abrir ritmo ou estilo (Estúdio de Ritmos .ritmo, Yamaha .sty/.prs/.sst, Korg em MIDI)"),
+                                                   juce::File(), "*.ritmo;*.sty;*.STY;*.prs;*.sst;*.mid");
     seletor->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                           [this] (const juce::FileChooser& fc) {
                               auto f = fc.getResult();
                               if (! f.existsAsFile()) return;
                               juce::String erro;
-                              if (! proc.carregarRitmoDeTexto (f.loadFileAsString(), erro))
+                              if (! proc.carregarArquivo (f, erro))
                                   juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
                                                                           "Abrir ritmo", erro);
                           });
@@ -135,7 +136,8 @@ void EstudioRitmosEditor::mostrarAjuda()
     for (auto& [nota, acao] : EstudioRitmosProcessor::teclasDeControle())
         t << "  " << nota << " (" << juce::String (er::nomeNota (nota - 12)) << " no Cubase) = " << juce::String (acao) << "\n";
     t << u ("\nA troca de seção também pode ser automatizada pelo parâmetro 'Secao'.\n"
-            "Os ritmos (.ritmo) são criados no programa Estúdio de Ritmos e ficam salvos dentro do projeto.");
+            "Abre ritmos .ritmo (programa Estúdio de Ritmos), estilos Yamaha .sty/.prs/.sst (SFF1 e SFF2)\n"
+            "e estilos Korg em MIDI. O ritmo/estilo fica salvo dentro do projeto.");
     juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Ajuda", t);
 }
 
@@ -144,7 +146,8 @@ void EstudioRitmosEditor::timerCallback()
     auto e = proc.estadoUI();
     const auto& m = e.motor;
     lblAcorde.setText (juce::String::fromUTF8 (m.acorde.c_str()), juce::dontSendNotification);
-    nomeRitmo.setText (u ("Ritmo: ") + juce::String::fromUTF8 (e.nomeRitmo.c_str()), juce::dontSendNotification);
+    nomeRitmo.setText ((e.origem == "sty" ? u ("Estilo: ") : u ("Ritmo: ")) + juce::String::fromUTF8 (e.nomeRitmo.c_str())
+                           + "   (" + juce::String (e.compasso) + ")", juce::dontSendNotification);
     if (m.tocando)
     {
         lblSecao.setText (juce::String (m.secao) + "   compasso " + juce::String (m.compasso), juce::dontSendNotification);
@@ -206,7 +209,7 @@ void EstudioRitmosEditor::resized()
     titulo.setBounds (topo.removeFromLeft (200));
     btAjuda.setBounds (topo.removeFromRight (70).reduced (2));
     btExemplo.setBounds (topo.removeFromRight (90).reduced (2));
-    btAbrir.setBounds (topo.removeFromRight (120).reduced (2));
+    btAbrir.setBounds (topo.removeFromRight (160).reduced (2));
     nomeRitmo.setBounds (topo);
     a.removeFromTop (12);
     a.reduce (10, 6);

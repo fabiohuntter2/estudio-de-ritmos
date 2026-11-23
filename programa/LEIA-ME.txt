@@ -84,13 +84,30 @@ Mac:
   Q = Intro A   E = Final A   1–7 = acordes do tom escolhido
 
 
+6b) ESTILOS YAMAHA E KORG
+------------------------
+  "Abrir…" aceita, além do .ritmo:
+    - Estilos YAMAHA .sty/.prs/.sst (SFF1 e SFF2): seções, timbres, andamento, compasso e as regras
+      de cada parte (CASM). Partes que só tocam em certos tipos de acorde aparecem TRACEJADAS no
+      editor ("camadas"); a lista de seções mostra "+Nc" quando a seção tem camadas.
+    - Estilos KORG em MIDI (gravados/exportados do teclado, marcadores "Variation 1", "Fill 1"...).
+    - Bancos .STY da série Korg Pa / .STG do Pa5X: formato fechado da Korg, ainda não abre;
+      o programa explica. Mande esses arquivos para análise.
+  "Exportar música… → Salvar estilo Yamaha (.sty)" grava o ritmo como estilo Yamaha (SFF1),
+  que pode ser carregado no teclado Yamaha ou aberto no plugin.
+  O compasso (4/4, 3/4, 2/4, 6/8, 12/8) fica na barra de cima.
+
+
 7) LIMITAÇÕES CONHECIDAS DESTA VERSÃO
 -------------------------------------
   - A detecção de bateria é por regras (acerto ~90% nos testes). Chimbal tocado junto com
     a caixa às vezes some; percussão regional (zabumba, triângulo) ainda não é separada.
   - Kontakt ao vivo dentro do programa é experimental (não pôde ser testado com Kontakt real
     durante o desenvolvimento — só com plugin simulado). Seu retorno aqui é o mais importante.
-  - Ainda não exporta .sty (Yamaha) nem formato Korg — próxima fase.
+  - Formato de banco da Korg (.STY binário / .STG): ainda não abre — precisa de arquivos reais
+    para a engenharia reversa.
+  - Do estilo Yamaha, ainda não são usados: OTS (registros de painel), MDB, Retrigger Rule (RTR)
+    e eventos de controle dentro das seções (expressão, pedal) — só as notas.
   - O som interno é simples, serve só para ouvir a ideia.
 
 

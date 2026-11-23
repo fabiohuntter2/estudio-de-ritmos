@@ -51,14 +51,15 @@ public:
     std::string secao;
 
 private:
-    struct Agendado { long long tick; int pista; Nota n; };
-    struct Soando { int canal, nota; long long off; int pista, fonte, vel; };
+    struct Agendado { long long tick; int pista; Nota n; const Camada* cam; const Secao* sec; };
+    struct Soando { int canal, nota; long long off; int pista, fonte, vel; const Camada* cam; const Secao* sec; };
 
     bool vazia (const std::string& n) const;
     void enviar (Evento::Tipo t, int canal, int d1, int d2);
     void entrar (const std::string& nome, long long inicio, long long aPartir = -1);
-    int notaSaida (int pista, int fonte) const;
-    void ligar (int pista, int fonte, int vel, long long off);
+    int notaSaida (int pista, int fonte, const Camada* cam) const;
+    void ligar (int pista, int fonte, int vel, long long off, const Camada* cam, const Secao* sec);
+    int tc() const { return ritmoAtual ? ritmoAtual->ticksCompasso() : COMPASSO; }
     void desligar (size_t idx);
     void todasOff();
     void retocar();

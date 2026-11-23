@@ -55,11 +55,17 @@ Sem o Cubase tocando, o botão INICIAR do plugin toca sozinho (no andamento do p
   Split: as notas ABAIXO do split fazem o acorde; as de cima passam direto (canal original).
 
 
-5) RITMOS
----------
-  O plugin já vem com o "Arrocha Demo". "Abrir ritmo..." carrega qualquer .ritmo criado
-  no programa Estúdio de Ritmos (importar loop, programar seções). O ritmo fica salvo
-  DENTRO do projeto do Cubase — não precisa levar o arquivo junto.
+5) RITMOS E ESTILOS
+-------------------
+  O plugin já vem com o "Arrocha Demo". O botão "Abrir ritmo/estilo..." abre:
+    - .ritmo  — criados no programa Estúdio de Ritmos (importar loop, programar seções);
+    - .sty / .prs / .sst — ESTILOS YAMAHA (PSR, Tyros, Genos; formatos SFF1 e SFF2), com as
+      regras de transposição do próprio estilo (CASM): partes para acordes maiores/menores,
+      acorde-fonte, High Key, limites de nota, compasso 3/4 e 6/8;
+    - estilos KORG gravados/exportados em MIDI (marcadores "Variation 1", "Fill 1", "Ending 1"...).
+  Os bancos .STY da série Korg Pa (BANK/USER01.STY) e os .STG do Pa5X são um formato fechado e
+  comprimido da Korg: ainda não abrem — o plugin avisa. Mande esses arquivos para análise.
+  O ritmo/estilo fica salvo DENTRO do projeto do Cubase — não precisa levar o arquivo junto.
 
 
 6) O QUE MANDAR DE VOLTA

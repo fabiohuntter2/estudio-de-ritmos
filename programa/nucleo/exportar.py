@@ -15,7 +15,7 @@ import mido
 import numpy as np
 
 from .acordes import ACORDE, FUNDAMENTAL, MELODIA, ACORDE_PADRAO, parse_acorde, transpor_nota
-from .ritmo import COMPASSO, PPQ, Ritmo, SECOES
+from .ritmo import PPQ, Ritmo, SECOES
 
 
 def parse_roteiro(texto: str) -> list[tuple[str, list[list]]]:
@@ -42,6 +42,7 @@ def parse_roteiro(texto: str) -> list[tuple[str, list[list]]]:
 
 def gerar_eventos(ritmo: Ritmo, roteiro) -> tuple[list, int]:
     """Devolve ([(tick, mido.Message)], total_de_ticks)."""
+    tc = ritmo.ticks_compasso
     eventos = []
     t0 = 0
     for nome, compassos_acordes in roteiro:
@@ -51,14 +52,13 @@ def gerar_eventos(ritmo: Ritmo, roteiro) -> tuple[list, int]:
         n_comp = max(sec.compassos, len(compassos_acordes))
         if nome.startswith(("Fill", "Break", "Intro", "Final")):
             n_comp = sec.compassos
-        # mapa de acordes no tempo (relativo ao trecho)
         mudancas = []
         ultimo = ACORDE_PADRAO
         for c in range(n_comp):
             acs = compassos_acordes[c] if c < len(compassos_acordes) else [None]
             for k, ac in enumerate(acs):
                 ultimo = ac or ultimo
-                mudancas.append((c * COMPASSO + k * COMPASSO // len(acs), ultimo))
+                mudancas.append((c * tc + k * tc // len(acs), ultimo))
 
         def acorde_em(t):
             atual = mudancas[0][1]
@@ -67,35 +67,50 @@ def gerar_eventos(ritmo: Ritmo, roteiro) -> tuple[list, int]:
                     atual = ac
             return atual
 
-        limites = sorted({tm for tm, _ in mudancas}) + [n_comp * COMPASSO]
+        limites = sorted({tm for tm, _ in mudancas}) + [n_comp * tc]
+        fontes = [(i, notas, None) for i, notas in sec.pistas.items()] + \
+                 [(cam.pista, cam.notas, cam) for cam in sec.camadas]
         for c in range(n_comp):
-            base = c * COMPASSO
-            loop_ini = (c % sec.compassos) * COMPASSO
-            for i, notas in sec.pistas.items():
+            base = c * tc
+            loop_ini = (c % sec.compassos) * tc
+            for i, notas, cam in fontes:
                 cfg = ritmo.pistas[i]
                 if cfg.mudo:
                     continue
+                regra = cam.regra if cam else cfg.regra
+                faixa = tuple(cam.faixa if cam else cfg.faixa)
                 for n in notas:
-                    if not (loop_ini <= n.ini < loop_ini + COMPASSO):
+                    if not (loop_ini <= n.ini < loop_ini + tc):
                         continue
                     ini = base + n.ini - loop_ini
-                    fim = min(ini + n.dur, n_comp * COMPASSO)
+                    fim = min(ini + n.dur, n_comp * tc)
                     pedacos = [(ini, fim)]
-                    if cfg.regra in (ACORDE, FUNDAMENTAL):            # corta na troca de acorde
+                    if regra in (ACORDE, FUNDAMENTAL) or cam is not None:   # corta na troca de acorde
                         pedacos, a = [], ini
                         for lim in limites:
                             if a < lim < fim:
                                 pedacos.append((a, lim)); a = lim
                         pedacos.append((a, fim))
-                        if cfg.regra == FUNDAMENTAL:
+                        if regra == FUNDAMENTAL:
                             pedacos = pedacos[:1]
+                        elif regra != ACORDE:                                 # melodia/bypass: não retoca
+                            pedacos = [(pedacos[0][0], fim)] if cam is None or sec.camada_toca(cam, acorde_em(ini)) else []
                     for k, (a, b) in enumerate(pedacos):
-                        nota = cfg.nota_saida(transpor_nota(n.nota, cfg.regra, tuple(cfg.faixa), acorde_em(a)))
+                        ac = acorde_em(a)
+                        if cam is not None and not sec.camada_toca(cam, ac):
+                            if k == 0 or regra == ACORDE:
+                                break
+                            continue
+                        if cam is None:
+                            nota = transpor_nota(n.nota, regra, faixa, ac)
+                        else:
+                            nota = transpor_nota(n.nota, regra, faixa, ac, cam.acorde_fonte(), cam.tecla_alta)
+                        nota = max(0, min(127, cfg.nota_saida(nota)))
                         vel = n.vel if k == 0 else max(1, int(n.vel * 0.85))
                         eventos.append((t0 + a, mido.Message("note_on", channel=cfg.canal, note=nota, velocity=vel)))
                         eventos.append((t0 + max(a + 1, b - 2),
                                         mido.Message("note_off", channel=cfg.canal, note=nota, velocity=0)))
-        t0 += n_comp * COMPASSO
+        t0 += n_comp * tc
     eventos.sort(key=lambda e: (e[0], 0 if e[1].type == "note_off" else 1))
     return eventos, t0
 
@@ -106,7 +121,7 @@ def salvar_midi(ritmo: Ritmo, eventos: list, caminho: str, bpm: float | None = N
     guia = mido.MidiTrack()
     guia.append(mido.MetaMessage("track_name", name=ritmo.nome, time=0))
     guia.append(mido.MetaMessage("set_tempo", tempo=mido.bpm2tempo(bpm), time=0))
-    guia.append(mido.MetaMessage("time_signature", numerator=4, denominator=4, time=0))
+    guia.append(mido.MetaMessage("time_signature", numerator=ritmo.compasso[0], denominator=ritmo.compasso[1], time=0))
     mid.tracks.append(guia)
     for cfg in ritmo.pistas:
         evs = [(t, m) for t, m in eventos if m.channel == cfg.canal]

@@ -19,7 +19,7 @@ private:
     juce::LookAndFeel_V4 visual;
 
     juce::Label titulo, nomeRitmo, lblAcorde, lblSecao, lblProxima, lblBpm, lblInfo, lblSplit, lblModo, lblSeq, lblAcordeTxt;
-    juce::TextButton btAbrir { "Abrir ritmo..." }, btExemplo { "Exemplo" }, btAjuda { "Ajuda" };
+    juce::TextButton btAbrir { "Abrir ritmo/estilo..." }, btExemplo { "Exemplo" }, btAjuda { "Ajuda" };
     juce::TextButton btPlay { "INICIAR" }, btSync { "Sync Start" };
     juce::ToggleButton tgSeguir { "Seguir play do Cubase" }, tgAutoFill { "Auto Fill" }, tgSeq { "Sequencia automatica" };
     juce::ComboBox cbSplit, cbModo;

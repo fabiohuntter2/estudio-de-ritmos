@@ -72,7 +72,9 @@ class EditorGrade(ttk.Frame):
         self.rowconfigure(0, weight=1); self.columnconfigure(0, weight=1)
         self.linhas: list[tuple[int, str, bool]] = []
         self.notas: list[Nota] = []
+        self.extras: list[Nota] = []          # notas de camadas importadas (só mostradas)
         self.compassos = 1
+        self.ppc = 16                         # semicolcheias por compasso (16 em 4/4, 12 em 3/4)
         self.dur_ticks = SEMI
         self.vel = 100
         self.on_change = on_change
@@ -85,13 +87,14 @@ class EditorGrade(ttk.Frame):
         self.cv.bind("<Button-4>", lambda e: self.cv.yview_scroll(-1, "units"))
         self.cv.bind("<Button-5>", lambda e: self.cv.yview_scroll(1, "units"))
 
-    def carregar(self, linhas, notas, compassos):
+    def carregar(self, linhas, notas, compassos, ppc=16, extras=None):
         self.linhas, self.notas, self.compassos = linhas, notas, max(1, compassos)
+        self.ppc, self.extras = ppc, list(extras or [])
         self.desenhar()
         self.cv.xview_moveto(0)
         # rola até as notas (ou até o Dó central da faixa)
         idx = {n: i for i, (n, _, _) in enumerate(linhas)}
-        alvos = [idx[n.nota] for n in notas if n.nota in idx]
+        alvos = [idx[n.nota] for n in list(notas) + self.extras if n.nota in idx]
         if not alvos:
             alvos = [i for i, (n, _, _) in enumerate(linhas) if n == 60] or [0]
         meio = sum(alvos) / len(alvos)
@@ -103,17 +106,18 @@ class EditorGrade(ttk.Frame):
     def desenhar(self):
         cv, W, H, R = self.cv, self.W, self.H, self.ROTULO
         cv.delete("all")
-        passos = self.compassos * 16
+        P = self.ppc
+        passos = self.compassos * P
         largura, altura = R + passos * W, len(self.linhas) * H
         cv.configure(scrollregion=(0, 0, largura + 4, altura + 22))
         y0 = 20
         for k in range(passos + 1):                                   # régua
             x = R + k * W
-            if k % 16 == 0 and k < passos:
-                cv.create_text(x + 3, 10, text=str(k // 16 + 1), anchor="w", fill=COR["acento"],
+            if k % P == 0 and k < passos:
+                cv.create_text(x + 3, 10, text=str(k // P + 1), anchor="w", fill=COR["acento"],
                                font=("Segoe UI", 9, "bold"))
             elif k % 4 == 0 and k < passos:
-                cv.create_text(x + 3, 10, text=str(k % 16 // 4 + 1), anchor="w", fill=COR["texto2"],
+                cv.create_text(x + 3, 10, text=str(k % P // 4 + 1), anchor="w", fill=COR["texto2"],
                                font=("Segoe UI", 8))
         for i, (nota, rotulo, preta) in enumerate(self.linhas):
             y = y0 + i * H
@@ -122,9 +126,17 @@ class EditorGrade(ttk.Frame):
             cv.create_line(R, y, largura, y, fill=COR["fundo"])
         for k in range(passos + 1):
             x = R + k * W
-            cor = COR["grade_forte"] if k % 16 == 0 else (COR["grade"] if k % 4 == 0 else COR["fundo"])
-            cv.create_line(x, y0, x, y0 + altura, fill=cor, width=2 if k % 16 == 0 else 1)
+            cor = COR["grade_forte"] if k % P == 0 else (COR["grade"] if k % 4 == 0 else COR["fundo"])
+            cv.create_line(x, y0, x, y0 + altura, fill=cor, width=2 if k % P == 0 else 1)
         idx = {nota: i for i, (nota, _, _) in enumerate(self.linhas)}
+        for n in self.extras:                                          # camadas do estilo (tracejadas)
+            if n.nota not in idx:
+                continue
+            y = y0 + idx[n.nota] * H
+            x1 = R + n.ini / SEMI * W
+            x2 = R + min((n.ini + n.dur) / SEMI, passos) * W
+            cv.create_rectangle(x1 + 1, y + 3, max(x1 + 6, x2 - 1), y + H - 3, outline=COR["acento"],
+                                dash=(3, 2), width=1)
         for n in self.notas:
             if n.nota not in idx:
                 continue
@@ -140,7 +152,7 @@ class EditorGrade(ttk.Frame):
         x, y = self.cv.canvasx(e.x), self.cv.canvasy(e.y)
         passo = int((x - self.ROTULO) // self.W)
         linha = int((y - 20) // self.H)
-        if passo < 0 or passo >= self.compassos * 16 or linha < 0 or linha >= len(self.linhas):
+        if passo < 0 or passo >= self.compassos * self.ppc or linha < 0 or linha >= len(self.linhas):
             return None
         return passo, self.linhas[linha][0]
 
@@ -312,6 +324,12 @@ class App:
         sp.pack(side="left", padx=4)
         sp.bind("<Return>", lambda e: self._mudar_bpm())
         sp.bind("<FocusOut>", lambda e: self._mudar_bpm())
+        self.var_compasso = tk.StringVar(value=f"{self.ritmo.compasso[0]}/{self.ritmo.compasso[1]}")
+        cbc = ttk.Combobox(b2, textvariable=self.var_compasso, values=["4/4", "3/4", "2/4", "6/8", "12/8"], width=5,
+                           state="readonly")
+        cbc.pack(side="right", padx=4)
+        cbc.bind("<<ComboboxSelected>>", lambda e: self._mudar_compasso())
+        ttk.Label(b2, text="Compasso:", style="Fundo.TLabel").pack(side="right", padx=(8, 0))
 
         ttk.Label(b2, text="Saída do som:", style="Fundo.TLabel").pack(side="left")
         self.var_saida = tk.StringVar(value=SOM_INTERNO)
@@ -344,6 +362,16 @@ class App:
             self.ritmo.bpm = bpm
             self.tocador.definir_bpm(bpm)
             self._marcar()
+
+    def _mudar_compasso(self):
+        num, den = (int(x) for x in self.var_compasso.get().split("/"))
+        if (num, den) == tuple(self.ritmo.compasso):
+            return
+        self.tocador.parar()
+        self.ritmo.definir_compasso(num, den)
+        self._marcar()
+        self._atualizar_tudo()
+        self._msg(f"Compasso {num}/{den}. As notas já programadas não foram movidas.")
 
     def _mudar_saida(self):
         escolha = self.var_saida.get()
@@ -416,6 +444,7 @@ class App:
         self.var_nome.set(r.nome)
         self.alterado = False
         self.var_bpm.set(r.bpm)
+        self.var_compasso.set(f"{r.compasso[0]}/{r.compasso[1]}")
         self._atualizar_tudo()
 
     def novo(self):
@@ -429,14 +458,28 @@ class App:
     def abrir(self, caminho=None):
         if not self._confirmar_descartar():
             return
-        caminho = caminho or filedialog.askopenfilename(filetypes=[("Ritmo", "*.ritmo"), ("Todos", "*.*")])
+        caminho = caminho or filedialog.askopenfilename(filetypes=[
+            ("Ritmos e estilos", "*.ritmo *.sty *.STY *.prs *.sst *.mid"), ("Ritmo (Estúdio de Ritmos)", "*.ritmo"),
+            ("Estilo Yamaha", "*.sty *.prs *.sst"), ("Korg (banco .STY ou MIDI)", "*.STY *.sty *.mid"),
+            ("Todos", "*.*")])
         if not caminho:
             return
         try:
-            self._trocar_ritmo(Ritmo.abrir(caminho), caminho)
-            self._msg(f"Aberto: {caminho}")
+            if caminho.lower().endswith(".ritmo"):
+                self._trocar_ritmo(Ritmo.abrir(caminho), caminho)
+                self._msg(f"Aberto: {caminho}")
+            else:
+                from nucleo.estilo_yamaha import ler_sty
+                r = ler_sty(caminho)
+                self._trocar_ritmo(r, None)
+                self.alterado = True
+                self._atualizar_titulo()
+                n_cam = sum(len(sec.camadas) for sec in r.secoes.values())
+                self._msg(f"Estilo importado: {os.path.basename(caminho)} — {r.bpm:g} BPM, compasso "
+                          f"{r.compasso[0]}/{r.compasso[1]}" + (f", {n_cam} camada(s) por tipo de acorde" if n_cam else "")
+                          + ". Use 'Salvar' para guardar como .ritmo.")
         except Exception as e:
-            self._erro("Abrir ritmo", e)
+            self._erro("Abrir ritmo/estilo", e)
 
     def salvar(self, como=False):
         if como or not self.caminho:
@@ -605,7 +648,7 @@ class App:
         import mido
         for rep in range(2):
             for n in self.analise_notas:
-                t = (n.ini + rep * self.analise_comp * COMPASSO) / PPQ * 60 / bpm
+                t = (n.ini + rep * self.analise_comp * COMPASSO) / PPQ * 60 / bpm   # loop detectado é 4/4
                 evs.append((t, mido.Message("note_on", channel=9, note=n.nota, velocity=n.vel)))
         tocar_audio(s.renderizar(evs, 2 * self.analise_comp * 4 * 60 / bpm), 44100)
 
@@ -706,7 +749,8 @@ class App:
         for nome in SECOES:
             s = self.ritmo.secoes[nome]
             marca = "●" if not s.vazia else "○"
-            self.lb_secoes.insert("end", f" {marca} {nome}   ({s.compassos})")
+            extra = f" +{len(s.camadas)}c" if s.camadas else ""
+            self.lb_secoes.insert("end", f" {marca} {nome}   ({s.compassos}){extra}")
         self.lb_secoes.selection_set(sel[0] if sel else SECOES.index("Var A"))
 
     def _sel_secao(self):
@@ -733,9 +777,17 @@ class App:
         sec = self.ritmo.secoes[self._secao_sel()]
         cfg = self.ritmo.pistas[i]
         self.lbl_pista.configure(text=f"{self._secao_sel()}  ›  Pista {i + 1}: {cfg.nome}")
-        self.editor.carregar(self._linhas_pista(i), sec.notas(i), sec.compassos)
+        camadas = sec.camadas_da_pista(i)
+        extras = [n for c in camadas for n in c.notas]
+        self.editor.carregar(self._linhas_pista(i), sec.notas(i), sec.compassos,
+                             self.ritmo.ticks_compasso // SEMI, extras)
         self._cfg_editor()
-        if cfg.regra == AC.BYPASS:
+        if camadas:
+            nomes = ", ".join(sorted({c.nome or "?" for c in camadas}))
+            self.lbl_dica.configure(text=f"Notas tracejadas = {len(camadas)} camada(s) do estilo importado ({nomes}), "
+                                         "que tocam conforme o tipo de acorde. Ficam como vieram; "
+                                         "as notas cheias são editáveis.")
+        elif cfg.regra == AC.BYPASS:
             self.lbl_dica.configure(text="Clique para pôr/tirar uma batida. Botão direito muda a força. "
                                          "A bateria não é transposta.")
         else:
@@ -744,7 +796,7 @@ class App:
                                          "Clique põe/tira nota; botão direito muda a força.")
 
     def _cfg_editor(self):
-        d = {"1/16": SEMI, "1/8": 2 * SEMI, "1/4": PPQ, "1/2": 2 * PPQ, "1 compasso": COMPASSO}
+        d = {"1/16": SEMI, "1/8": 2 * SEMI, "1/4": PPQ, "1/2": 2 * PPQ, "1 compasso": self.ritmo.ticks_compasso}
         self.editor.dur_ticks = d.get(self.var_dur.get(), SEMI)
         if self.ritmo.pistas[self.var_pista.get()].regra == AC.BYPASS:
             self.editor.dur_ticks = SEMI
@@ -1392,6 +1444,20 @@ class App:
 
         ttk.Button(bf, text="Salvar MIDI…", style="Acao.TButton", command=midi).pack(side="left")
         ttk.Button(bf, text="Renderizar WAV…", style="Acao.TButton", command=wav).pack(side="left", padx=8)
+
+        def sty():
+            c = filedialog.asksaveasfilename(parent=top, defaultextension=".sty",
+                                             initialfile=self.ritmo.nome + ".sty", filetypes=[("Estilo Yamaha", "*.sty")])
+            if not c:
+                return
+            try:
+                from nucleo.estilo_yamaha import escrever_sty
+                escrever_sty(self.ritmo, c)
+                prog.configure(text=f"Estilo Yamaha (SFF1) salvo: {c}\nCopie para um pendrive e carregue no teclado "
+                                    "(PSR/Tyros/Genos), ou abra de volta aqui e no plugin.")
+            except Exception as e:
+                messagebox.showerror("Estilo Yamaha", str(e), parent=top)
+        ttk.Button(bf, text="Salvar estilo Yamaha (.sty)…", command=sty).pack(side="left", padx=8)
         ttk.Checkbutton(bf, text="Usar os VSTs das pistas", variable=var_vst).pack(side="left")
 
 

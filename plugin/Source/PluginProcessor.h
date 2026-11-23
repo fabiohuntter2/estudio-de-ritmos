@@ -14,7 +14,7 @@ struct EstadoUI
     er::EstadoMotor motor;
     double bpm = 120.0;
     bool hostTocando = false, seguindoHost = false;
-    std::string nomeRitmo, erro;
+    std::string nomeRitmo, erro, compasso = "4/4", origem = "ritmo";
     std::vector<std::string> secoesComNotas;
 };
 
@@ -51,6 +51,8 @@ public:
     // ---- chamadas da interface (thread da mensagem)
     void enviarComando (Comando c);
     bool carregarRitmoDeTexto (const juce::String& json, juce::String& erro);
+    bool carregarEstilo (const juce::MemoryBlock& dados, const juce::String& nome, juce::String& erro);   // .sty
+    bool carregarArquivo (const juce::File& f, juce::String& erro);                                     // .ritmo ou .sty
     EstadoUI estadoUI() const;
 
     juce::AudioProcessorValueTreeState parametros;
@@ -66,6 +68,9 @@ private:
 
     er::Motor motor;
     juce::String ritmoJson;                                   // guardado no projeto do Cubase
+    juce::MemoryBlock estiloDados;                            // ou o .sty original (guardado em base64)
+    juce::String estiloNome;
+    void publicarRitmo (std::shared_ptr<er::Ritmo> r, const char* origem);
 
     juce::CriticalSection lockComandos, lockEstado, lockRitmo;
     std::vector<Comando> comandos;
@@ -81,6 +86,7 @@ private:
     double ppqEsperado = -1.0;
     int ultimaSecaoParam = 0;
     std::bitset<128> presas;
+    bool acordePendente = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (EstudioRitmosProcessor)
 };

@@ -31,8 +31,8 @@ EstadoMotor Motor::estado() const
     e.proxima = fila.empty() ? "" : fila.front();
     e.acorde = acorde ? acorde->nome() : "—";
     long long rel = pos - inicioSecao;
-    e.compasso = tocando ? (int) (rel / COMPASSO) + 1 : 0;
-    e.tempo = tocando ? (int) ((rel % COMPASSO) / PPQ) + 1 : 0;
+    e.compasso = tocando ? (int) (rel / tc()) + 1 : 0;
+    e.tempo = tocando ? (int) ((rel % tc()) / PPQ) + 1 : 0;
     return e;
 }
 
@@ -125,8 +125,8 @@ void Motor::pedir (const std::string& nome)
 void Motor::viradaAgora (std::vector<std::string> f)
 {
     long long rel = pos - inicioSecao;
-    long long inicioCompasso = inicioSecao + (rel / COMPASSO) * COMPASSO;
-    if (pos - inicioCompasso > COMPASSO - PPQ / 2)
+    long long inicioCompasso = inicioSecao + (rel / tc()) * tc();
+    if (pos - inicioCompasso > tc() - PPQ / 2)
     {
         fila = f;
         trocaNoCompasso = true;
@@ -175,7 +175,13 @@ void Motor::entrar (const std::string& nome, long long inicio, long long aPartir
     {
         if (i < 0 || i >= (int) ritmoAtual->pistas.size()) continue;
         for (auto& n : notas)
-            if (n.ini < sec.ticks()) eventos.push_back ({ inicio + n.ini, i, n });
+            if (n.ini < sec.ticks()) eventos.push_back ({ inicio + n.ini, i, n, nullptr, &sec });
+    }
+    for (auto& cam : sec.camadas)
+    {
+        if (cam.pista < 0 || cam.pista >= (int) ritmoAtual->pistas.size()) continue;
+        for (auto& n : cam.notas)
+            if (n.ini < sec.ticks()) eventos.push_back ({ inicio + n.ini, cam.pista, n, &cam, &sec });
     }
     std::stable_sort (eventos.begin(), eventos.end(), [] (const Agendado& a, const Agendado& b) {
         if (a.tick != b.tick) return a.tick < b.tick;
@@ -187,22 +193,25 @@ void Motor::entrar (const std::string& nome, long long inicio, long long aPartir
     while (evIdx < eventos.size() && eventos[evIdx].tick < aPartir) ++evIdx;
 }
 
-int Motor::notaSaida (int pista, int fonte) const
+int Motor::notaSaida (int pista, int fonte, const Camada* cam) const
 {
     const auto& cfg = ritmoAtual->pistas[(size_t) pista];
-    int n = transporNota (fonte, cfg.regra, cfg.lo, cfg.hi, acorde ? *acorde : acordePadrao());
+    const Acorde& ac = acorde ? *acorde : acordePadrao();
+    int n = cam == nullptr ? transporNota (fonte, cfg.regra, cfg.lo, cfg.hi, ac)
+                           : transporNota (fonte, cam->regra, cam->lo, cam->hi, ac, cam->fonte, cam->teclaAlta);
     return std::clamp (cfg.notaSaida (n), 0, 127);
 }
 
-void Motor::ligar (int pista, int fonte, int vel, long long off)
+void Motor::ligar (int pista, int fonte, int vel, long long off, const Camada* cam, const Secao* sec)
 {
     const auto& cfg = ritmoAtual->pistas[(size_t) pista];
     if (cfg.mudo) return;
-    int n = notaSaida (pista, fonte);
+    if (cam != nullptr && ! sec->camadaToca (*cam, acorde ? *acorde : acordePadrao())) return;
+    int n = notaSaida (pista, fonte, cam);
     auto it = std::find_if (soando.begin(), soando.end(), [&] (const Soando& s) { return s.canal == cfg.canal && s.nota == n; });
     if (it != soando.end()) enviar (Evento::NoteOff, cfg.canal, n, 0);
     enviar (Evento::NoteOn, cfg.canal, n, std::clamp (vel, 1, 127));
-    Soando novo { cfg.canal, n, off, pista, fonte, vel };
+    Soando novo { cfg.canal, n, off, pista, fonte, vel, cam, sec };
     if (it != soando.end()) *it = novo;     // mantém a posição (como o dict do Python)
     else soando.push_back (novo);
 }
@@ -223,16 +232,24 @@ void Motor::todasOff()
 
 void Motor::retocar()
 {
+    const Acorde& ac = acorde ? *acorde : acordePadrao();
     auto copia = soando;
     for (auto& s : copia)
     {
-        Regra regra = ritmoAtual->pistas[(size_t) s.pista].regra;
+        auto achar = [&] { return std::find_if (soando.begin(), soando.end(), [&] (const Soando& x) { return x.canal == s.canal && x.nota == s.nota; }); };
+        if (s.cam != nullptr && ! s.sec->camadaToca (*s.cam, ac))
+        {
+            auto it = achar();                       // camada deixou de valer para este acorde
+            if (it != soando.end()) desligar ((size_t) (it - soando.begin()));
+            continue;
+        }
+        Regra regra = s.cam != nullptr ? s.cam->regra : ritmoAtual->pistas[(size_t) s.pista].regra;
         if (regra != Regra::Fundamental && regra != Regra::Acorde) continue;
-        auto it = std::find_if (soando.begin(), soando.end(), [&] (const Soando& x) { return x.canal == s.canal && x.nota == s.nota; });
+        auto it = achar();
         if (it == soando.end()) continue;
         desligar ((size_t) (it - soando.begin()));
         if (regra == Regra::Acorde && s.off - pos > SEMI / 2)
-            ligar (s.pista, s.fonte, std::max (1, (int) (s.vel * 0.85)), s.off);
+            ligar (s.pista, s.fonte, std::max (1, (int) (s.vel * 0.85)), s.off, s.cam, s.sec);
     }
 }
 
@@ -268,7 +285,7 @@ void Motor::avancar (long long ate)
         const Secao& sec = ritmoAtual->secao (secao);
         long long fimSecao = inicioSecao + sec.ticks();
         long long rel = pos - inicioSecao;
-        long long proxCompasso = inicioSecao + (rel / COMPASSO + 1) * COMPASSO;
+        long long proxCompasso = inicioSecao + (rel / tc() + 1) * tc();
         long long limite = std::min ({ ate, fimSecao, proxCompasso });
 
         for (;;)
@@ -289,7 +306,7 @@ void Motor::avancar (long long ate)
             {
                 const Agendado ag = eventos[evIdx++];
                 pos = std::max (pos, ag.tick);
-                ligar (ag.pista, ag.n.nota, ag.n.vel, ag.tick + ag.n.dur);
+                ligar (ag.pista, ag.n.nota, ag.n.vel, ag.tick + ag.n.dur, ag.cam, ag.sec);
             }
         }
         pos = limite;

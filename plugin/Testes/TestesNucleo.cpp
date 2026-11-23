@@ -3,14 +3,26 @@
 //   TestesNucleo acordes                               -> imprime reconhecimento/transposição de uma bateria de casos
 #include <juce_core/juce_core.h>
 #include "../Source/nucleo/Motor.h"
+#include "../Source/nucleo/EstiloYamaha.h"
 #include <iostream>
 
 using namespace er;
 
+static bool cmd_e_compasso (const juce::var& c) { return (bool) c.getProperty ("em_compassos", false); }
+
 static int cenario (const char* ritmoPath, const char* cenarioPath)
 {
-    auto texto = juce::File (ritmoPath).loadFileAsString().toStdString();
-    auto ritmo = Ritmo::deJson (texto);
+    juce::File arq (ritmoPath);
+    std::shared_ptr<Ritmo> ritmo;
+    if (arq.hasFileExtension ("ritmo"))
+        ritmo = Ritmo::deJson (arq.loadFileAsString().toStdString());
+    else
+    {
+        juce::MemoryBlock mb;
+        arq.loadFileAsData (mb);
+        std::vector<uint8_t> dados ((const uint8_t*) mb.getData(), (const uint8_t*) mb.getData() + mb.getSize());
+        ritmo = lerSty (dados, arq.getFileNameWithoutExtension().toStdString());
+    }
     Motor m;
     m.setRitmo (ritmo);
     m.setSaida ([] (const Evento& e) {
@@ -21,6 +33,7 @@ static int cenario (const char* ritmoPath, const char* cenarioPath)
     for (auto& c : *cmds.getArray())
     {
         long long tick = (long long) (juce::int64) c["tick"];
+        if (cmd_e_compasso (c)) tick = (long long) ((double) c["tick"] * ritmo->ticksCompasso());
         juce::String cmd = c["cmd"].toString();
         std::string v = c["v"].toString().toStdString();
         m.avancar (tick);
@@ -67,6 +80,17 @@ static int acordes()
             std::cout << "T " << ac.nome();
             for (auto [regra, lo, hi] : { std::tuple { Regra::Fundamental, 28, 52 }, { Regra::Acorde, 52, 76 }, { Regra::Melodia, 60, 88 } })
                 for (int n = lo; n <= hi; ++n) std::cout << " " << transporNota (n, regra, lo, hi, ac);
+            std::cout << "\n";
+        }
+    // acorde-fonte e High Key diferentes do padrão
+    for (int raiz = 0; raiz < 12; ++raiz)
+        for (auto* tipo : { "", "m", "7", "m7", "maj7", "dim", "sus4", "9", "m7b5" })
+        {
+            Acorde ac = parseAcorde (std::string (nomes[raiz]) + tipo);
+            std::cout << "F " << ac.nome();
+            for (auto [fonte, hk] : { std::pair { "Cm7", 4 }, { "Dm", 9 }, { "G7", 2 }, { "Csus4", 6 }, { "C", 11 } })
+                for (auto [regra, lo, hi] : { std::tuple { Regra::Fundamental, 28, 52 }, { Regra::Acorde, 50, 79 }, { Regra::Melodia, 60, 88 } })
+                    for (int n = lo; n <= hi; ++n) std::cout << " " << transporNota (n, regra, lo, hi, ac, parseAcorde (fonte), hk);
             std::cout << "\n";
         }
     auto inv = parseAcorde ("C/E");

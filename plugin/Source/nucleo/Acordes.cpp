@@ -204,13 +204,27 @@ std::optional<Acorde> reconhecer (std::vector<int> notas, bool modoSingle)
     return std::nullopt;
 }
 
-static int papel (int pcFonte, const Acorde& alvo, bool soNotasDoAcorde)
+const Acorde& fontePadrao()
+{
+    static const Acorde a { 0, "maj7", -1 };
+    return a;
+}
+
+static int papel (int pcFonte, const Acorde& alvo, bool soNotasDoAcorde, const Acorde& fonte)
 {
     int t = alvo.terca(), q = alvo.quinta(), s = alvo.setima();
-    auto mapa = [&] (int pc) -> int {
-        switch (pc) { case 0: return 0; case 4: return t; case 7: return q; case 11: return s >= 0 ? s : 12; default: return -999; }
+    int fs = fonte.setima();
+    // mapa na ordem de inserção do Python (setdefault: a primeira chave igual vence)
+    std::vector<std::pair<int, int>> mapa;
+    auto por = [&] (int k, int v) {
+        for (auto& kv : mapa) if (kv.first == k) return;
+        mapa.push_back ({ k, v });
     };
-    if (int m = mapa (pcFonte); m != -999) return m;
+    por (0, 0);
+    por (fonte.terca(), t);
+    por (fonte.quinta(), q);
+    por (fs >= 0 ? fs : 11, s >= 0 ? s : 12);
+    for (auto& kv : mapa) if (kv.first == pcFonte) return kv.second;
     if (soNotasDoAcorde)
     {
         std::vector<int> c { 0, t, q };
@@ -223,30 +237,32 @@ static int papel (int pcFonte, const Acorde& alvo, bool soNotasDoAcorde)
     if (pcFonte == 2) return 2;
     if (pcFonte == 5) return 5;
     if (pcFonte == 9) return (alvo.tem (9) || ! menor) ? 9 : 8;
-    int ancora = 0, melhor = 99;
-    for (int a : { 0, 4, 7, 11 })                 // mesma ordem do dict do Python: empate fica com o primeiro
-        if (std::abs (a - pcFonte) < melhor) { melhor = std::abs (a - pcFonte); ancora = a; }
-    return mapa (ancora) + (pcFonte - ancora);
+    size_t melhor = 0;
+    for (size_t k = 1; k < mapa.size(); ++k)       // empate fica com o primeiro (min do Python)
+        if (std::abs (mapa[k].first - pcFonte) < std::abs (mapa[melhor].first - pcFonte)) melhor = k;
+    return mapa[melhor].second + (pcFonte - mapa[melhor].first);
 }
 
-int transporNota (int nota, Regra regra, int lo, int hi, const Acorde& alvo)
+int transporNota (int nota, Regra regra, int lo, int hi, const Acorde& alvo, const Acorde& fonte, int teclaAlta)
 {
     if (regra == Regra::Bypass) return nota;
-    int pc = nota % 12;
+    int fr = fonte.fundamental;
+    int pc = mod12 (nota - fr);
     int raiz = alvo.fundamental;
 
     if (regra == Regra::Fundamental || regra == Regra::Melodia)
     {
-        int intervalo = papel (pc, alvo, false);
+        int intervalo = papel (pc, alvo, false, fonte);
         if (regra == Regra::Fundamental && pc == 0 && alvo.baixo >= 0) intervalo = mod12 (alvo.baixo - raiz);
-        int desloc = raiz <= 6 ? raiz : raiz - 12;
+        int d = mod12 (raiz - fr);
+        int desloc = d <= mod12 (teclaAlta - fr) ? d : d - 12;
         int nova = nota + desloc + (intervalo - pc);
         while (nova > hi && nova - 12 >= 0) nova -= 12;
         while (nova < lo && nova + 12 <= 127) nova += 12;
         return nova;
     }
     // Acorde: troca de voz e escolhe a oitava mais próxima (faixa com folga de 4 semitons)
-    int pcAlvo = mod12 (raiz + papel (pc, alvo, true));
+    int pcAlvo = mod12 (raiz + papel (pc, alvo, true, fonte));
     std::vector<int> opcoes, dentro;
     for (int o = 0; o < 11; ++o)
         if (o * 12 + pcAlvo <= 127) opcoes.push_back (o * 12 + pcAlvo);

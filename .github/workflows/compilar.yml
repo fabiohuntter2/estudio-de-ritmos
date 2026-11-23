@@ -68,11 +68,15 @@ jobs:
           pip install mido
           python plugin/Testes/comparar_com_python.py programa "${{ steps.arq.outputs.tn }}"
 
-      - name: Teste 2 - o .vst3 carregado num host, simulando o Cubase
+      - name: Teste 2 - o .vst3 carregado num host, simulando o Cubase (ritmo e estilo Yamaha)
         run: |
           for b in 64 333 512 2048; do
             "${{ steps.arq.outputs.ht }}" "${{ steps.arq.outputs.vst3 }}" cubase $b host_cubase_$b.jsonl
             python plugin/Testes/verificar_host.py programa host_cubase_$b.jsonl $b
+          done
+          for b in 333 512; do
+            "${{ steps.arq.outputs.ht }}" "${{ steps.arq.outputs.vst3 }}" estilo $b host_estilo_$b.jsonl programa/testes/dados/PianoBallad.sty
+            python plugin/Testes/verificar_host.py programa host_estilo_$b.jsonl $b programa/testes/dados/PianoBallad.sty
           done
           for c in interno relocar semplayhead; do
             "${{ steps.arq.outputs.ht }}" "${{ steps.arq.outputs.vst3 }}" $c 512 host_$c.jsonl

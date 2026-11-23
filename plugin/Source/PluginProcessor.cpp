@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "BinaryData.h"
+#include "nucleo/EstiloYamaha.h"
 #include <cmath>
 
 using namespace er;
@@ -78,6 +79,22 @@ void EstudioRitmosProcessor::prepareToPlay (double sampleRate, int)
 }
 
 // ---------------------------------------------------------------- ritmo / estado
+void EstudioRitmosProcessor::publicarRitmo (std::shared_ptr<er::Ritmo> r, const char* origem)
+{
+    {
+        const juce::ScopedLock sl (lockRitmo);
+        ritmoPendente = r;
+    }
+    const juce::ScopedLock sl (lockEstado);
+    estado.nomeRitmo = r->nome;
+    estado.erro.clear();
+    estado.origem = origem;
+    estado.compasso = std::to_string (r->compassoNum) + "/" + std::to_string (r->compassoDen);
+    estado.secoesComNotas.clear();
+    for (auto& n : nomesSecoes())
+        if (! r->vazia (n)) estado.secoesComNotas.push_back (n);
+}
+
 bool EstudioRitmosProcessor::carregarRitmoDeTexto (const juce::String& json, juce::String& erro)
 {
     try
@@ -85,24 +102,49 @@ bool EstudioRitmosProcessor::carregarRitmoDeTexto (const juce::String& json, juc
         auto r = Ritmo::deJson (json.toStdString());
         {
             const juce::ScopedLock sl (lockRitmo);
-            ritmoPendente = r;
             ritmoJson = json;
+            estiloDados.reset();
+            estiloNome.clear();
         }
-        {
-            const juce::ScopedLock sl (lockEstado);
-            estado.nomeRitmo = r->nome;
-            estado.erro.clear();
-            estado.secoesComNotas.clear();
-            for (auto& n : nomesSecoes())
-                if (! r->vazia (n)) estado.secoesComNotas.push_back (n);
-        }
+        publicarRitmo (r, "ritmo");
         return true;
     }
     catch (const std::exception& e)
     {
-        erro = e.what();
+        erro = juce::String::fromUTF8 (e.what());
         return false;
     }
+}
+
+bool EstudioRitmosProcessor::carregarEstilo (const juce::MemoryBlock& dados, const juce::String& nome, juce::String& erro)
+{
+    try
+    {
+        std::vector<uint8_t> v ((const uint8_t*) dados.getData(), (const uint8_t*) dados.getData() + dados.getSize());
+        auto r = lerSty (v, nome.toStdString());
+        {
+            const juce::ScopedLock sl (lockRitmo);
+            estiloDados = dados;
+            estiloNome = nome;
+            ritmoJson.clear();
+        }
+        publicarRitmo (r, "sty");
+        return true;
+    }
+    catch (const std::exception& e)
+    {
+        erro = juce::String::fromUTF8 (e.what());
+        return false;
+    }
+}
+
+bool EstudioRitmosProcessor::carregarArquivo (const juce::File& f, juce::String& erro)
+{
+    if (! f.existsAsFile()) { erro = "Arquivo não encontrado."; return false; }
+    if (f.hasFileExtension ("ritmo")) return carregarRitmoDeTexto (f.loadFileAsString(), erro);
+    juce::MemoryBlock mb;
+    f.loadFileAsData (mb);
+    return carregarEstilo (mb, f.getFileNameWithoutExtension(), erro);
 }
 
 void EstudioRitmosProcessor::getStateInformation (juce::MemoryBlock& dest)
@@ -110,7 +152,13 @@ void EstudioRitmosProcessor::getStateInformation (juce::MemoryBlock& dest)
     juce::ValueTree raiz ("EstudioRitmos");
     {
         const juce::ScopedLock sl (lockRitmo);
-        raiz.setProperty ("ritmo", ritmoJson, nullptr);
+        if (estiloDados.getSize() > 0)
+        {
+            raiz.setProperty ("estilo", estiloDados.toBase64Encoding(), nullptr);
+            raiz.setProperty ("estiloNome", estiloNome, nullptr);
+        }
+        else
+            raiz.setProperty ("ritmo", ritmoJson, nullptr);
     }
     raiz.appendChild (parametros.copyState(), nullptr);
     juce::MemoryOutputStream os (dest, false);
@@ -122,8 +170,15 @@ void EstudioRitmosProcessor::setStateInformation (const void* data, int size)
     auto raiz = juce::ValueTree::readFromData (data, (size_t) size);
     if (! raiz.isValid() || ! raiz.hasType ("EstudioRitmos")) return;
     juce::String erro;
+    auto estilo = raiz.getProperty ("estilo").toString();
     auto json = raiz.getProperty ("ritmo").toString();
-    if (json.isNotEmpty()) carregarRitmoDeTexto (json, erro);
+    if (estilo.isNotEmpty())
+    {
+        juce::MemoryBlock mb;
+        if (mb.fromBase64Encoding (estilo)) carregarEstilo (mb, raiz.getProperty ("estiloNome").toString(), erro);
+    }
+    else if (json.isNotEmpty())
+        carregarRitmoDeTexto (json, erro);
     auto p = raiz.getChildWithName (parametros.state.getType());
     if (p.isValid()) parametros.replaceState (p);
 }
@@ -220,7 +275,8 @@ void EstudioRitmosProcessor::tratarEntrada (const juce::MidiMessage& m, int amos
 
     if (m.isNoteOnOrOff() && m.getNoteNumber() < split)
     {
-        if (m.isNoteOn()) { presas.set ((size_t) m.getNoteNumber()); reconhecerMaoEsquerda(); }
+        // o reconhecimento é feito depois de todas as notas do mesmo instante (acorde inteiro de uma vez)
+        if (m.isNoteOn()) { presas.set ((size_t) m.getNoteNumber()); acordePendente = true; }
         else presas.reset ((size_t) m.getNoteNumber());            // memória: o acorde continua
         return;
     }
@@ -321,13 +377,19 @@ void EstudioRitmosProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
         if (motor.tocando)
             motor.avancar ((long long) std::ceil (tickInicio + amostra * tps));
     };
+    int amostraDoGrupo = -1;
     for (const auto meta : entrada)
     {
         int s = juce::jlimit (0, juce::jmax (0, n - 1), meta.samplePosition);
-        avancarAte (s);
-        amostraAtual = s;
+        if (s != amostraDoGrupo)
+        {
+            if (acordePendente) { reconhecerMaoEsquerda(); acordePendente = false; }
+            avancarAte (s);
+            amostraAtual = amostraDoGrupo = s;
+        }
         tratarEntrada (meta.getMessage(), s, n, midi);
     }
+    if (acordePendente) { reconhecerMaoEsquerda(); acordePendente = false; }
     avancarAte (n);
     amostraAtual = 0;
 

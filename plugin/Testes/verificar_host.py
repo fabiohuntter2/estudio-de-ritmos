@@ -12,6 +12,7 @@ from nucleo.ritmo import Ritmo                   # noqa: E402
 from nucleo.tocador import Tocador               # noqa: E402
 
 BLOCO = int(sys.argv[3]) if len(sys.argv) > 3 else 512
+ESTILO = sys.argv[4] if len(sys.argv) > 4 else None
 SR, BPM, PPQ, C = 48000.0, 136.0, 480, 1920
 TPS = BPM / 60 * PPQ / SR
 amostra = lambda tick: math.floor(tick / TPS)
@@ -20,7 +21,11 @@ plug = [json.loads(l) for l in open(sys.argv[2])]
 mao_direita = [e for e in plug if e[2] == 0]
 plug = [e for e in plug if e[2] != 0]
 
-r = Ritmo.abrir(sys.argv[1] + "/exemplos/Arrocha Demo.ritmo")
+if ESTILO:
+    from nucleo.estilo_yamaha import ler_sty   # noqa: E402
+    r = ler_sty(ESTILO)
+else:
+    r = Ritmo.abrir(sys.argv[1] + "/exemplos/Arrocha Demo.ritmo")
 t = Tocador(r)
 t._thread_auto = False
 esp = []

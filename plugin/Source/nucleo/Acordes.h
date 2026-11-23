@@ -37,7 +37,11 @@ Acorde parseAcorde (const std::string& texto);
 // modoSingle = Single Finger. Devolve vazio se não reconhecer.
 std::optional<Acorde> reconhecer (std::vector<int> notas, bool modoSingle = false);
 
-int transporNota (int nota, Regra regra, int faixaLo, int faixaHi, const Acorde& alvo);
+constexpr int TECLA_ALTA_PADRAO = 6;   // High Key: acima de F# o padrão desce uma oitava
+const Acorde& fontePadrao();            // CMaj7: acorde em que as pistas são gravadas
+
+int transporNota (int nota, Regra regra, int faixaLo, int faixaHi, const Acorde& alvo,
+                  const Acorde& fonte = fontePadrao(), int teclaAlta = TECLA_ALTA_PADRAO);
 
 std::string nomeNota (int n);
 } // namespace er

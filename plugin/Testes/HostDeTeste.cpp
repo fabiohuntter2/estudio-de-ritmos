@@ -44,6 +44,7 @@ int main (int argc, char** argv)
     juce::ScopedJuceInitialiser_GUI juceInit;
     if (argc < 5) { std::cerr << "uso: HostDeTeste <plugin> <cenario> <bloco> <saida>\n"; return 1; }
     juce::String caminho (argv[1]), cenario (argv[2]);
+    const bool comEstilo = cenario == "estilo";
     int bloco = juce::String (argv[3]).getIntValue();
     std::ofstream saida (argv[4]);
 
@@ -89,6 +90,28 @@ int main (int argc, char** argv)
     juce::int64 pararHost = amostraDoTick (10 * C) + 77;
     juce::int64 relocarEm = -1, relocarPara = 0;
 
+    if (cenario == "estilo")                          // carrega um .sty pelo estado (como o Cubase reabrindo o projeto)
+    {
+        if (argc < 6) { std::cerr << "cenario estilo precisa do caminho do .sty\n"; return 1; }
+        juce::File sty (argv[5]);
+        juce::MemoryBlock dados;
+        sty.loadFileAsData (dados);
+        juce::ValueTree raiz ("EstudioRitmos");
+        raiz.setProperty ("estilo", dados.toBase64Encoding(), nullptr);
+        raiz.setProperty ("estiloNome", sty.getFileNameWithoutExtension(), nullptr);
+        juce::MemoryBlock mb;
+        juce::MemoryOutputStream os (mb, false);
+        raiz.writeToStream (os);
+        os.flush();
+        // O host VST3 guarda o estado como XML "VST3PluginState" com o estado do componente em base64
+        // (é isso que o Cubase faz ao reabrir um projeto). Montamos exatamente esse formato.
+        juce::XmlElement embrulho ("VST3PluginState");
+        embrulho.createNewChildElement ("IComponent")->addTextElement (mb.toBase64Encoding());
+        juce::MemoryBlock bin;
+        juce::AudioProcessor::copyXmlToBinary (embrulho, bin);
+        plugin->setStateInformation (bin.getData(), (int) bin.getSize());
+        cenario = "cubase";
+    }
     if (cenario == "cubase" || cenario == "relocar" || cenario == "semplayhead")
     {
         ph.tocando = true;

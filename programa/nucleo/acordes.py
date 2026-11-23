@@ -163,9 +163,18 @@ def reconhecer(notas, modo: str = "fingered") -> Acorde | None:
     return None
 
 
-def _papel(pc_fonte: int, alvo: Acorde, so_notas_do_acorde: bool) -> int:
+FONTE_PADRAO = Acorde(0, "maj7")       # acorde em que as pistas são gravadas (CMaj7)
+TECLA_ALTA_PADRAO = 6                  # High Key: acima de F# o padrão desce uma oitava
+
+
+def _papel(pc_fonte: int, alvo: Acorde, so_notas_do_acorde: bool, fonte: Acorde = FONTE_PADRAO) -> int:
+    """pc_fonte é relativo à fundamental do acorde-fonte. Devolve o intervalo no acorde-alvo."""
     t, q, s = alvo.terca(), alvo.quinta(), alvo.setima()
-    mapa = {0: 0, 4: t, 7: q, 11: s if s is not None else 12}
+    fs = fonte.setima()
+    mapa = {}
+    for chave, valor in ((0, 0), (fonte.terca(), t), (fonte.quinta(), q),
+                         (fs if fs is not None else 11, s if s is not None else 12)):
+        mapa.setdefault(chave, valor)
     if pc_fonte in mapa:
         return mapa[pc_fonte]
     if so_notas_do_acorde:
@@ -179,19 +188,23 @@ def _papel(pc_fonte: int, alvo: Acorde, so_notas_do_acorde: bool) -> int:
     return mapa[ancora] + (pc_fonte - ancora)
 
 
-def transpor_nota(nota: int, regra: str, faixa: tuple[int, int], alvo: Acorde) -> int:
-    """Transforma uma nota gravada sobre CMaj7 na nota correspondente do acorde `alvo`."""
+def transpor_nota(nota: int, regra: str, faixa: tuple[int, int], alvo: Acorde,
+                  fonte: Acorde | None = None, tecla_alta: int = TECLA_ALTA_PADRAO) -> int:
+    """Transforma uma nota gravada sobre o acorde `fonte` (padrão CMaj7) na nota do acorde `alvo`."""
     if regra == BYPASS or alvo is None:
         return nota
+    fonte = fonte or FONTE_PADRAO
     lo, hi = faixa
-    oitava, pc = divmod(nota, 12)
+    fr = fonte.fundamental
+    pc = (nota - fr) % 12
     raiz = alvo.fundamental
 
     if regra in (FUNDAMENTAL, MELODIA):
-        intervalo = _papel(pc, alvo, so_notas_do_acorde=False)
+        intervalo = _papel(pc, alvo, False, fonte)
         if regra == FUNDAMENTAL and pc == 0 and alvo.baixo is not None:
             intervalo = (alvo.baixo - raiz) % 12
-        desloc = raiz if raiz <= 6 else raiz - 12
+        d = (raiz - fr) % 12
+        desloc = d if d <= (tecla_alta - fr) % 12 else d - 12
         nova = nota + desloc + (intervalo - pc)
         while nova > hi and nova - 12 >= 0:
             nova -= 12
@@ -200,7 +213,7 @@ def transpor_nota(nota: int, regra: str, faixa: tuple[int, int], alvo: Acorde) -
         return nova
 
     if regra == ACORDE:
-        pc_alvo = (raiz + _papel(pc, alvo, so_notas_do_acorde=True)) % 12
+        pc_alvo = (raiz + _papel(pc, alvo, True, fonte)) % 12
         opcoes = [o * 12 + pc_alvo for o in range(11) if o * 12 + pc_alvo <= 127]
         # faixa "macia": aceita até 4 semitons além do limite para não pular uma oitava inteira
         dentro = [n for n in opcoes if lo - 4 <= n <= hi + 4] or opcoes

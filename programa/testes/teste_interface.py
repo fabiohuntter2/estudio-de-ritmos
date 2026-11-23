@@ -103,11 +103,36 @@ root.update()
 checar(not app.tocador.tocando, "parar")
 
 # ---- salvar / abrir
+app.alterado = False
 caminho = os.path.join(PASTA, "teste.ritmo")
 app.caminho = caminho
 app.salvar()
 r2 = A.Ritmo.abrir(caminho)
 checar(r2.para_dict() == app.ritmo.para_dict(), "salvar e abrir .ritmo (idêntico)")
+
+# ---- abrir estilo Yamaha real e um 3/4
+app.alterado = False
+app.abrir(os.path.join(AQUI, "dados", "PianoBallad.sty"))
+root.update()
+checar(app.ritmo.nome == "PianoBallad" and app.ritmo.bpm == 85.0, "abrir estilo Yamaha .sty")
+app.abas.select(1)
+app.lb_secoes.selection_clear(0, "end"); app.lb_secoes.selection_set(A.SECOES.index("Var B")); app._sel_secao()
+app.var_pista.set(4); app._sel_pista()
+checar(len(app.editor.extras) > 0, "editor mostra as camadas do estilo")
+foto(root, "7_estilo_yamaha_camadas")
+app.abas.select(3)
+log.clear()
+app.var_seq.set("C Am Dm7 G7"); app.var_seq_on.set(True)
+app._play()
+t0 = time.time()
+while time.time() - t0 < 2.5:
+    root.update(); time.sleep(0.01)
+app._play(); root.update()
+checar(sum(1 for m in log if m.type == "note_on") > 20, "estilo Yamaha toca no tocador")
+app.var_compasso.set("3/4"); app._mudar_compasso(); root.update()
+checar(app.ritmo.ticks_compasso == 1440 and app.editor.ppc == 12, "compasso 3/4 na grade")
+app.abas.select(1); root.update()
+foto(root, "8_grade_3_4")
 
 # ---- janela de exportação
 app.janela_exportar(); root.update()

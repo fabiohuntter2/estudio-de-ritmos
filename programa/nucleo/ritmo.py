@@ -7,13 +7,18 @@ from dataclasses import dataclass, field, asdict
 
 import mido
 
-from .acordes import BYPASS, FUNDAMENTAL, ACORDE, MELODIA
+from .acordes import BYPASS, FUNDAMENTAL, ACORDE, MELODIA, Acorde, TECLA_ALTA_PADRAO
 
 PPQ = 480
 SEMI = PPQ // 4          # semicolcheia
 COL = PPQ // 2           # colcheia
 TEMPO = PPQ              # semínima
-COMPASSO = PPQ * 4       # 4/4
+COMPASSO = PPQ * 4       # 4/4 (padrão; o ritmo pode ter outro compasso)
+
+
+def ticks_do_compasso(num: int, den: int) -> int:
+    """3/4 -> 1440, 4/4 -> 1920, 6/8 -> 1440, 2/4 -> 960."""
+    return num * PPQ * 4 // den
 
 SECOES = ["Intro A", "Intro B", "Intro C",
           "Var A", "Var B", "Var C", "Var D",
@@ -61,20 +66,75 @@ class ConfigPista:
 
 
 @dataclass
+class Camada:
+    """Notas extras de uma pista com regras próprias e filtro por acorde.
+    Vem dos estilos Yamaha: ex. uma parte para acordes maiores e outra para menores no mesmo canal."""
+    pista: int
+    notas: list
+    regra: str
+    faixa: tuple = (0, 127)
+    fonte: tuple = (0, "maj7")          # acorde em que as notas foram gravadas (raiz, tipo)
+    tecla_alta: int = TECLA_ALTA_PADRAO
+    tipos_mudos: list = field(default_factory=list)    # tipos de acorde em que esta camada NÃO toca
+    raizes_mudas: list = field(default_factory=list)   # fundamentais (0..11) em que NÃO toca
+    nome: str = ""
+
+    def acorde_fonte(self) -> Acorde:
+        return Acorde(int(self.fonte[0]), self.fonte[1])
+
+    def ativa(self, ac: Acorde) -> bool:
+        return ac.tipo not in self.tipos_mudos and ac.fundamental not in self.raizes_mudas
+
+    def para_dict(self) -> dict:
+        return {"pista": self.pista, "nome": self.nome, "regra": self.regra, "faixa": list(self.faixa),
+                "fonte": list(self.fonte), "tecla_alta": self.tecla_alta,
+                "tipos_mudos": list(self.tipos_mudos), "raizes_mudas": list(self.raizes_mudas),
+                "notas": [[n.ini, n.dur, n.nota, n.vel] for n in self.notas]}
+
+    @staticmethod
+    def de_dict(d: dict) -> "Camada":
+        return Camada(int(d["pista"]), [Nota(*n) for n in d.get("notas", [])], d.get("regra", BYPASS),
+                      tuple(d.get("faixa", (0, 127))), tuple(d.get("fonte", (0, "maj7"))),
+                      int(d.get("tecla_alta", TECLA_ALTA_PADRAO)), list(d.get("tipos_mudos", [])),
+                      list(d.get("raizes_mudas", [])), d.get("nome", ""))
+
+
+@dataclass
 class Secao:
     compassos: int = 1
     pistas: dict = field(default_factory=dict)   # índice da pista (0..7) -> list[Nota]
+    camadas: list = field(default_factory=list)  # list[Camada]
+    tc: int = COMPASSO                           # ticks por compasso (definido pelo Ritmo)
 
     def notas(self, pista: int) -> list[Nota]:
         return self.pistas.setdefault(pista, [])
 
+    def camadas_da_pista(self, pista: int) -> list:
+        return [c for c in self.camadas if c.pista == pista]
+
+    def camada_toca(self, cam: Camada, ac: Acorde) -> bool:
+        """A camada toca neste acorde?
+        - fundamental silenciada (Note Mute): nunca toca;
+        - tipo de acorde silenciado (Chord Mute): não toca, a não ser que nenhuma camada da pista cubra
+          esse tipo — aí toca a primeira da mesma família (maior/menor), para nada ficar mudo nem dobrado."""
+        if ac.fundamental in cam.raizes_mudas:
+            return False
+        if ac.tipo not in cam.tipos_mudos:
+            return True
+        irmas = [c for c in self.camadas if c.pista == cam.pista and ac.fundamental not in c.raizes_mudas]
+        if any(ac.tipo not in c.tipos_mudos for c in irmas):
+            return False
+        menor = ac.terca() == 3
+        mesma = [c for c in irmas if (c.acorde_fonte().terca() == 3) == menor]
+        return (mesma or irmas)[0] is cam
+
     @property
     def vazia(self) -> bool:
-        return not any(self.pistas.values())
+        return not any(self.pistas.values()) and not any(c.notas for c in self.camadas)
 
     @property
     def ticks(self) -> int:
-        return self.compassos * COMPASSO
+        return self.compassos * self.tc
 
     def estender(self, novos: int, exceto: int | None = None) -> None:
         """Aumenta a seção para `novos` compassos repetindo o conteúdo atual de cada pista."""
@@ -82,17 +142,24 @@ class Secao:
         if novos <= antigo:
             self.compassos = max(1, novos)
             return
-        for i, notas in self.pistas.items():
-            if i == exceto or not notas:
-                continue
-            base = [n for n in notas if n.ini < antigo * COMPASSO]
+        tc = self.tc
+
+        def repetir(notas):
+            base = [n for n in notas if n.ini < antigo * tc]
             extra = []
             for k in range(1, (novos + antigo - 1) // antigo):
                 for n in base:
-                    ini = n.ini + k * antigo * COMPASSO
-                    if ini < novos * COMPASSO:
+                    ini = n.ini + k * antigo * tc
+                    if ini < novos * tc:
                         extra.append(Nota(ini, n.dur, n.nota, n.vel))
-            self.pistas[i] = sorted(base + extra, key=lambda n: (n.ini, n.nota))
+            return sorted(base + extra, key=lambda n: (n.ini, n.nota))
+
+        for i, notas in self.pistas.items():
+            if i != exceto and notas:
+                self.pistas[i] = repetir(notas)
+        for c in self.camadas:
+            if c.pista != exceto and c.notas:
+                c.notas = repetir(c.notas)
         self.compassos = novos
 
 
@@ -102,17 +169,34 @@ class Ritmo:
     bpm: float
     pistas: list
     secoes: dict
+    compasso: tuple = (4, 4)
+
+    def __post_init__(self):
+        self.definir_compasso(*self.compasso)
+
+    @property
+    def ticks_compasso(self) -> int:
+        return ticks_do_compasso(*self.compasso)
+
+    def definir_compasso(self, num: int, den: int) -> None:
+        self.compasso = (int(num), int(den))
+        for s in self.secoes.values():
+            s.tc = self.ticks_compasso
 
     # --------------------------------------------------------------- arquivo
     def para_dict(self) -> dict:
+        secoes = {}
+        for nome, s in self.secoes.items():
+            d = {"compassos": s.compassos,
+                 "pistas": {str(i): [[n.ini, n.dur, n.nota, n.vel] for n in ns] for i, ns in s.pistas.items() if ns}}
+            if s.camadas:
+                d["camadas"] = [c.para_dict() for c in s.camadas]
+            secoes[nome] = d
         return {
-            "formato": "estudio-ritmos", "versao": 1,
-            "nome": self.nome, "bpm": self.bpm,
+            "formato": "estudio-ritmos", "versao": 2,
+            "nome": self.nome, "bpm": self.bpm, "compasso": list(self.compasso),
             "pistas": [asdict(p) for p in self.pistas],
-            "secoes": {nome: {"compassos": s.compassos,
-                              "pistas": {str(i): [[n.ini, n.dur, n.nota, n.vel] for n in ns]
-                                         for i, ns in s.pistas.items() if ns}}
-                       for nome, s in self.secoes.items()},
+            "secoes": secoes,
         }
 
     @staticmethod
@@ -129,8 +213,10 @@ class Ritmo:
             if s:
                 for i, ns in s["pistas"].items():
                     sec.pistas[int(i)] = [Nota(*n) for n in ns]
+                sec.camadas = [Camada.de_dict(c) for c in s.get("camadas", [])]
             secoes[nome] = sec
-        return Ritmo(d.get("nome", "Sem nome"), float(d.get("bpm", 120)), pistas, secoes)
+        return Ritmo(d.get("nome", "Sem nome"), float(d.get("bpm", 120)), pistas, secoes,
+                     tuple(d.get("compasso", (4, 4))))
 
     def salvar(self, caminho: str) -> None:
         with open(caminho, "w", encoding="utf-8") as f:
@@ -143,8 +229,8 @@ class Ritmo:
 
     def copiar_secao(self, origem: str, destino: str) -> None:
         s = self.secoes[origem]
-        self.secoes[destino] = Secao(s.compassos, {i: [Nota(**asdict(n)) for n in ns]
-                                                   for i, ns in s.pistas.items()})
+        self.secoes[destino] = Secao(s.compassos, {i: [Nota(**asdict(n)) for n in ns] for i, ns in s.pistas.items()},
+                                     [Camada.de_dict(c.para_dict()) for c in s.camadas], s.tc)
 
 
 def pistas_padrao() -> list[ConfigPista]:

@@ -39,7 +39,7 @@ juce_add_plugin(EstudioRitmos
 
 juce_add_binary_data(EstudioRitmosDados SOURCES "Recursos/Arrocha Demo.ritmo")
 
-set(NUCLEO Source/nucleo/Acordes.cpp Source/nucleo/Ritmo.cpp Source/nucleo/Motor.cpp)
+set(NUCLEO Source/nucleo/Acordes.cpp Source/nucleo/Ritmo.cpp Source/nucleo/Motor.cpp Source/nucleo/EstiloYamaha.cpp)
 
 target_sources(EstudioRitmos PRIVATE
     Source/PluginProcessor.cpp

@@ -16,7 +16,7 @@ import time
 import mido
 
 from .acordes import ACORDE, FUNDAMENTAL, BYPASS, ACORDE_PADRAO, Acorde, transpor_nota
-from .ritmo import COMPASSO, PPQ, SEMI, Ritmo
+from .ritmo import PPQ, SEMI, Ritmo
 
 
 def letra(secao: str) -> str:
@@ -91,8 +91,8 @@ class Tocador:
             return {"tocando": self.tocando, "armado": self.armado, "secao": self.secao,
                     "var": self.var_atual, "intro": self.intro_escolhida,
                     "proxima": self.fila[0] if self.fila else None,
-                    "compasso": rel // COMPASSO + 1 if self.tocando else 0,
-                    "tempo": (rel % COMPASSO) // PPQ + 1 if self.tocando else 0,
+                    "compasso": rel // self._tc + 1 if self.tocando else 0,
+                    "tempo": (rel % self._tc) // PPQ + 1 if self.tocando else 0,
                     "acorde": self.acorde.nome if self.acorde else "—", "bpm": self.bpm}
 
     # ------------------------------------------------------------------ comandos
@@ -187,8 +187,9 @@ class Tocador:
     def _virada_agora(self, fila):
         """Virada/break: entra já, alinhada ao compasso atual (toca do ponto atual até o fim)."""
         rel = self.pos - self.inicio_secao
-        inicio_compasso = self.inicio_secao + (rel // COMPASSO) * COMPASSO
-        if self.pos - inicio_compasso > COMPASSO - PPQ // 2:      # apertou no finalzinho: próximo compasso
+        tc = self._tc
+        inicio_compasso = self.inicio_secao + (rel // tc) * tc
+        if self.pos - inicio_compasso > tc - PPQ // 2:      # apertou no finalzinho: próximo compasso
             self.fila = fila
             self.troca_no_compasso = True
             return
@@ -212,6 +213,10 @@ class Tocador:
 
     _thread_auto = True
 
+    @property
+    def _tc(self) -> int:
+        return self.ritmo.ticks_compasso
+
     # ------------------------------------------------------------------ núcleo
     def _entrar(self, nome: str, inicio: int, a_partir: int | None = None):
         self.secao = nome
@@ -221,7 +226,11 @@ class Tocador:
         for i, notas in sec.pistas.items():
             for n in notas:
                 if n.ini < sec.ticks:
-                    ev.append((inicio + n.ini, i, n))
+                    ev.append((inicio + n.ini, i, n, None, sec))
+        for cam in sec.camadas:
+            for n in cam.notas:
+                if n.ini < sec.ticks:
+                    ev.append((inicio + n.ini, cam.pista, n, cam, sec))
         ev.sort(key=lambda e: (e[0], e[1], e[2].nota))
         self._eventos = ev
         a_partir = inicio if a_partir is None else a_partir
@@ -229,21 +238,27 @@ class Tocador:
         while self._ev_idx < len(ev) and ev[self._ev_idx][0] < a_partir:
             self._ev_idx += 1
 
-    def _nota_saida(self, pista: int, nota_fonte: int) -> int:
+    def _nota_saida(self, pista: int, nota_fonte: int, cam=None) -> int:
         cfg = self.ritmo.pistas[pista]
-        n = transpor_nota(nota_fonte, cfg.regra, tuple(cfg.faixa), self.acorde or ACORDE_PADRAO)
+        ac = self.acorde or ACORDE_PADRAO
+        if cam is None:
+            n = transpor_nota(nota_fonte, cfg.regra, tuple(cfg.faixa), ac)
+        else:
+            n = transpor_nota(nota_fonte, cam.regra, tuple(cam.faixa), ac, cam.acorde_fonte(), cam.tecla_alta)
         return max(0, min(127, cfg.nota_saida(n)))
 
-    def _on(self, pista: int, nota_fonte: int, vel: int, off: int):
+    def _on(self, pista: int, nota_fonte: int, vel: int, off: int, cam=None, sec=None):
         cfg = self.ritmo.pistas[pista]
         if cfg.mudo:
             return
-        n = self._nota_saida(pista, nota_fonte)
+        if cam is not None and not sec.camada_toca(cam, self.acorde or ACORDE_PADRAO):
+            return                                      # camada de outro tipo de acorde (ex.: só menores)
+        n = self._nota_saida(pista, nota_fonte, cam)
         chave = (cfg.canal, n)
         if chave in self.soando:
             self._enviar(mido.Message("note_off", channel=cfg.canal, note=n, velocity=0))
         self._enviar(mido.Message("note_on", channel=cfg.canal, note=n, velocity=max(1, min(127, vel))))
-        self.soando[chave] = [off, pista, nota_fonte, vel]
+        self.soando[chave] = [off, pista, nota_fonte, vel, cam, sec]
 
     def _off(self, chave):
         canal, n = chave
@@ -258,14 +273,18 @@ class Tocador:
 
     def _retocar(self):
         """Acorde mudou com notas soando."""
-        for chave, (off, pista, fonte, vel) in list(self.soando.items()):
-            regra = self.ritmo.pistas[pista].regra
+        ac = self.acorde or ACORDE_PADRAO
+        for chave, (off, pista, fonte, vel, cam, sec) in list(self.soando.items()):
+            if cam is not None and not sec.camada_toca(cam, ac):
+                self._off(chave)                         # camada deixou de valer para este acorde
+                continue
+            regra = cam.regra if cam is not None else self.ritmo.pistas[pista].regra
             if regra == FUNDAMENTAL:
                 self._off(chave)
             elif regra == ACORDE:
                 self._off(chave)
                 if off - self.pos > SEMI // 2:
-                    self._on(pista, fonte, max(1, int(vel * 0.85)), off)
+                    self._on(pista, fonte, max(1, int(vel * 0.85)), off, cam, sec)
             # MELODIA e BYPASS: deixa terminar
 
     def _fronteira(self, fim_secao: bool):
@@ -295,7 +314,7 @@ class Tocador:
                 sec = self.ritmo.secoes[self.secao]
                 fim_secao = self.inicio_secao + sec.ticks
                 rel = self.pos - self.inicio_secao
-                prox_compasso = self.inicio_secao + (rel // COMPASSO + 1) * COMPASSO
+                prox_compasso = self.inicio_secao + (rel // self._tc + 1) * self._tc
                 limite = min(ate, fim_secao, prox_compasso)
 
                 # note-off e note-on em ordem de tempo (off antes de on no mesmo tick)
@@ -314,10 +333,10 @@ class Tocador:
                         self.pos = max(self.pos, off_tick)
                         self._off(off_chave)
                     else:
-                        t, pista, n = self._eventos[self._ev_idx]
+                        t, pista, n, cam, sec = self._eventos[self._ev_idx]
                         self._ev_idx += 1
                         self.pos = max(self.pos, t)
-                        self._on(pista, n.nota, n.vel, t + n.dur)
+                        self._on(pista, n.nota, n.vel, t + n.dur, cam, sec)
 
                 self.pos = limite
                 if self.pos in (prox_compasso, fim_secao):
