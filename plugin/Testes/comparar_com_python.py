@@ -133,7 +133,13 @@ SEQ = [(C, "acorde", "Am"), (2 * C, "acorde", "G7"), (2 * C + 960, "acorde", "Dm
        (8 * C, "acorde", "E7"), (9 * C, "pedir", "Fill"), (10 * C, "acorde", "C/E"), (11 * C, "pedir", "Var D"),
        (12 * C, "acorde", "Cm7"), (13 * C, "acorde", "Ab"), (14 * C, "pedir", "Break"), (15 * C, "pedir", "Final A"),
        (30 * C, "fim", "")]
-CENARIOS["estilo_yamaha_real"] = (os.path.join(DADOS, "PianoBallad.sty"), [(0, "acorde", "C"), (0, "iniciar", "")] + SEQ)
+sys.path.insert(0, os.path.join(PY, "testes"))
+import gerar_estilo_sff2   # noqa: E402
+CENARIOS["estilo_yamaha_sff2"] = (gerar_estilo_sff2.gerar(os.path.join(TMPD, "TesteSFF2.sty")),
+                                  [(0, "acorde", "C"), (0, "iniciar", "")] + SEQ)
+EXTRA = os.environ.get("ESTILO_EXTRA")         # um .sty real, para conferência local
+if EXTRA and os.path.exists(EXTRA):
+    CENARIOS["estilo_extra"] = (EXTRA, [(0, "acorde", "C"), (0, "iniciar", "")] + SEQ)
 T = 1440
 CENARIOS["valsa_3_4_camadas"] = ("__valsa__", [
     (0, "acorde", "C"), (0, "iniciar", ""), (T, "acorde", "Am"), (2 * T, "acorde", "F"), (3 * T, "acorde", "Em7"),

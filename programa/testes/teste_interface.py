@@ -112,12 +112,14 @@ checar(r2.para_dict() == app.ritmo.para_dict(), "salvar e abrir .ritmo (idêntic
 
 # ---- abrir estilo Yamaha real e um 3/4
 app.alterado = False
-app.abrir(os.path.join(AQUI, "dados", "PianoBallad.sty"))
+sys.path.insert(0, AQUI)
+import gerar_estilo_sff2  # noqa: E402
+app.abrir(gerar_estilo_sff2.gerar(os.path.join(PASTA, "TesteSFF2.sty")))
 root.update()
-checar(app.ritmo.nome == "PianoBallad" and app.ritmo.bpm == 85.0, "abrir estilo Yamaha .sty")
+checar(app.ritmo.nome == "TesteSFF2" and app.ritmo.bpm == 100.0, "abrir estilo Yamaha .sty (SFF2)")
 app.abas.select(1)
-app.lb_secoes.selection_clear(0, "end"); app.lb_secoes.selection_set(A.SECOES.index("Var B")); app._sel_secao()
-app.var_pista.set(4); app._sel_pista()
+app.lb_secoes.selection_clear(0, "end"); app.lb_secoes.selection_set(A.SECOES.index("Var A")); app._sel_secao()
+app.var_pista.set(3); app._sel_pista()
 checar(len(app.editor.extras) > 0, "editor mostra as camadas do estilo")
 foto(root, "7_estilo_yamaha_camadas")
 app.abas.select(3)

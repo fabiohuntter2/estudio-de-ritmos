@@ -13,7 +13,7 @@ from nucleo.ritmo import (Camada, Nota, PPQ, SEMI, ritmo_demo, ticks_do_compasso
 from nucleo.tocador import Tocador                                         # noqa: E402
 
 TMP = tempfile.mkdtemp(prefix="estudio_sty_")
-STY_REAL = os.path.join(AQUI, "dados", "PianoBallad.sty")
+sys.path.insert(0, AQUI)
 
 
 def tocar(ritmo, roteiro):
@@ -51,47 +51,72 @@ def sem_notas_presas(log):
     return all(v <= 0 for v in abertas.values())
 
 
-class TesteEstiloReal(unittest.TestCase):
+class TesteEstiloSFF2(unittest.TestCase):
+    """Estilo Yamaha SFF2 gerado pelos testes (gerar_estilo_sff2.py), sem material de terceiros."""
+
     @classmethod
     def setUpClass(cls):
-        cls.r = ler_sty(STY_REAL)
+        import gerar_estilo_sff2
+        cls.caminho = gerar_estilo_sff2.gerar(os.path.join(TMP, "TesteSFF2.sty"))
+        cls.r = ler_sty(cls.caminho)
 
     def test_cabecalho(self):
-        self.assertEqual(self.r.nome, "PianoBallad")
-        self.assertEqual(self.r.bpm, 85.0)
+        self.assertEqual(self.r.nome, "TesteSFF2")
+        self.assertEqual(self.r.bpm, 100.0)
         self.assertEqual(self.r.compasso, (4, 4))
-        for s in ["Intro A", "Var A", "Var B", "Var C", "Var D", "Fill A", "Break", "Final A"]:
+        for s in ["Intro A", "Var A", "Var B", "Fill A", "Break", "Final A"]:
             self.assertFalse(self.r.secoes[s].vazia, s)
+        self.assertTrue(self.r.secoes["Var C"].vazia)
         self.assertEqual(self.r.secoes["Var A"].compassos, 2)
         self.assertEqual(self.r.pistas[2].regra, AC.FUNDAMENTAL)          # baixo
         self.assertEqual(self.r.pistas[2].programa, 33)                    # timbre da seção SInt
 
+    def test_zonas_ctb2_e_cntt(self):
+        var_a = self.r.secoes["Var A"]
+        guitarra = [c for c in var_a.camadas if c.pista == 3]
+        self.assertEqual([c.regra for c in guitarra], [AC.FUNDAMENTAL, AC.ACORDE, AC.MELODIA])   # 3 zonas
+        self.assertEqual(guitarra[2].tecla_alta, 7)
+        self.assertEqual(len(var_a.pistas[6]), 8)                         # frase: Cntt -> melodia, vira notas normais
+        self.assertEqual(self.r.pistas[6].regra, AC.MELODIA)
+        self.assertFalse(self.r.secoes["Var B"].pistas.get(6))           # 2º CSEG não tem regra -> não toca
+
+    def test_camadas_respeitam_o_acorde(self):
+        sec = self.r.secoes["Var A"]
+        maior = next(c for c in sec.camadas if c.nome == "BassMaj")
+        menor = next(c for c in sec.camadas if c.nome == "BassMin")
+        self.assertEqual(tuple(menor.fonte), (0, "m7"))
+        for nome, toca_maior in [("C", True), ("Am", False), ("G7", True), ("Dm7", False), ("Bdim", False),
+                                 ("Fmaj7", True), ("Esus4", True)]:
+            ac = AC.parse_acorde(nome)
+            self.assertEqual(sec.camada_toca(maior, ac), toca_maior, nome)
+            self.assertEqual(sec.camada_toca(menor, ac), not toca_maior, nome)
+        pad = next(c for c in sec.camadas if c.nome == "Pad")
+        self.assertFalse(sec.camada_toca(pad, AC.parse_acorde("C#m")))
+        self.assertFalse(sec.camada_toca(pad, AC.parse_acorde("F#7")))
+        self.assertTrue(sec.camada_toca(pad, AC.parse_acorde("D")))
+
+    def test_baixo_menor_toca_terca_menor(self):
+        log, _ = tocar(self.r, [(0, "acorde", "Am"), (0, "iniciar", ""), (1, "parar", "")])
+        baixo = [AC.NOMES[n % 12] for _t, tipo, ch, n in log if tipo == "note_on" and ch == 10]
+        self.assertEqual(baixo, ["A", "E", "C", "E"])      # camada menor (gravada em Cm7): Lá Mi Dó Mi
+
     def test_toca_sem_notas_presas(self):
-        roteiro = [(c / 1, cmd, v) for c, cmd, v in ROTEIRO]
-        log, t = tocar(self.r, roteiro)
+        log, t = tocar(self.r, ROTEIRO)
         self.assertGreater(sum(1 for e in log if e[1] == "note_on"), 300)
         self.assertTrue(sem_notas_presas(log))
         self.assertFalse(t.tocando)
 
-    def test_camadas_respeitam_o_acorde(self):
-        """Neste estilo, as camadas extras (pad e guitarra 'Root') só entram em acordes com sétima."""
-        sec = self.r.secoes["Var B"]
-        extras = [c for c in sec.camadas if "" in c.tipos_mudos]
-        self.assertEqual(sorted(c.nome for c in extras), ["Root EGi", "pad51"])
-        for nome, toca in [("C", False), ("Am", False), ("G7", True), ("Dm7", True), ("C9", True)]:
-            ac = AC.parse_acorde(nome)
-            for cam in extras:
-                self.assertEqual(sec.camada_toca(cam, ac), toca, (nome, cam.nome))
-
-    def test_nunca_duas_camadas_da_mesma_pista_sem_filtro_dobrando(self):
-        """Para qualquer acorde, cada pista tem pelo menos uma camada tocando (nada fica mudo)."""
+    def test_nada_fica_mudo_sem_querer(self):
+        """Para qualquer acorde, cada pista com camadas tem alguma tocando (exceto fundamentais silenciadas)."""
         for nome, sec in self.r.secoes.items():
-            pistas = {c.pista for c in sec.camadas}
-            for raiz in range(12):
-                for tipo in AC.TIPOS:
-                    ac = AC.Acorde(raiz, tipo)
-                    for p in pistas:
-                        tocam = [c for c in sec.camadas if c.pista == p and sec.camada_toca(c, ac)]
+            for p in {c.pista for c in sec.camadas}:
+                irmas = [c for c in sec.camadas if c.pista == p]
+                for raiz in range(12):
+                    if all(raiz in c.raizes_mudas for c in irmas):
+                        continue
+                    for tipo in AC.TIPOS:
+                        ac = AC.Acorde(raiz, tipo)
+                        tocam = [c for c in irmas if sec.camada_toca(c, ac)]
                         self.assertTrue(tocam or sec.pistas.get(p), (nome, p, ac.nome))
 
 

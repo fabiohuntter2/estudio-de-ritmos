@@ -74,9 +74,10 @@ jobs:
             "${{ steps.arq.outputs.ht }}" "${{ steps.arq.outputs.vst3 }}" cubase $b host_cubase_$b.jsonl
             python plugin/Testes/verificar_host.py programa host_cubase_$b.jsonl $b
           done
+          python programa/testes/gerar_estilo_sff2.py TesteSFF2.sty
           for b in 333 512; do
-            "${{ steps.arq.outputs.ht }}" "${{ steps.arq.outputs.vst3 }}" estilo $b host_estilo_$b.jsonl programa/testes/dados/PianoBallad.sty
-            python plugin/Testes/verificar_host.py programa host_estilo_$b.jsonl $b programa/testes/dados/PianoBallad.sty
+            "${{ steps.arq.outputs.ht }}" "${{ steps.arq.outputs.vst3 }}" estilo $b host_estilo_$b.jsonl TesteSFF2.sty
+            python plugin/Testes/verificar_host.py programa host_estilo_$b.jsonl $b TesteSFF2.sty
           done
           for c in interno relocar semplayhead; do
             "${{ steps.arq.outputs.ht }}" "${{ steps.arq.outputs.vst3 }}" $c 512 host_$c.jsonl
